@@ -22,37 +22,43 @@ def solenoid(r_in, r_out, L, N, center, current):   #Function to generate a sole
             solenoid_coil.add(winding)
     return solenoid_coil
 
-#Center of the magnet in the global coordinate z axis
-mag_center_coordinate = 296.1321503e-3
+def solenoid_with_simplified_winding(r_in, r_out, L, N, center, current):  #Use the solenoid() function, but reduce number of windings while keep the amp turns to keep field the same
+    winding_binning = 4 #bin every 4 turns into one turn
+    N = N/winding_binning
+    current *= winding_binning
+    return solenoid(r_in, r_out, L, N, center, current)
 
-I_M = 21.0 #Main coil current
-coilM1 = solenoid(0.1397, 0.1431, 0.42, 7559, 0-mag_center_coordinate, I_M)
-coilM2 = solenoid(0.1431, 0.1465, 0.0656, 1180.7, 0.1772-mag_center_coordinate, I_M)
-coilM3 = solenoid(0.1431, 0.1465, 0.0656, 1180.7, -0.1772-mag_center_coordinate, I_M)
+#Center of the magnet in the global coordinate z axis, nominal is -296.1321503e-3 m
+mag_center_coordinate = 0
+
+I_M = 21.0 #Main coil current, nominal = 21.0 A
+coilM1 = solenoid_with_simplified_winding(0.1397, 0.1431, 0.42, 7559, 0+mag_center_coordinate, I_M)
+coilM2 = solenoid_with_simplified_winding(0.1431, 0.1465, 0.0656, 1180.7, 0.1772+mag_center_coordinate, I_M)
+coilM3 = solenoid_with_simplified_winding(0.1431, 0.1465, 0.0656, 1180.7, -0.1772+mag_center_coordinate, I_M)
 
 Main = magpy.Collection(coilM1, coilM2, coilM3)
 print("Main generated.")
 
-I_A = 38.6 #Mirror A current
-coilA1 = solenoid(0.1397, 0.15756, 0.127, 12000, -0.3-mag_center_coordinate, I_A)
-coilA2 = solenoid(0.15756, 0.163275, 0.127, 7031.3, -0.3-mag_center_coordinate, I_A)
-coilA3 = solenoid(0.1465, 0.15755, 0.0656, 3837.1, -0.1772-mag_center_coordinate, -I_A)
-coilA4 = solenoid(0.15755, 0.161043, 0.0656, 2219.5, -0.1772-mag_center_coordinate, -I_A)
-coilA5 = solenoid(0.1431, 0.143525, 0.078, 175.5, 0.08-mag_center_coordinate, -I_A)
-coilA6 = solenoid(0.1431, 0.143525, 0.006, 13.5, 0.2-mag_center_coordinate, -I_A)
-coilA7 = solenoid(0.1633, 0.163725, 0.038, 85.5, 0.3-mag_center_coordinate, -I_A)
+I_A = 0 #Mirror A current, nominal = 38.6 A
+coilA1 = solenoid_with_simplified_winding(0.1397, 0.15756, 0.127, 12000, -0.3+mag_center_coordinate, I_A)
+coilA2 = solenoid_with_simplified_winding(0.15756, 0.163275, 0.127, 7031.3, -0.3+mag_center_coordinate, I_A)
+coilA3 = solenoid_with_simplified_winding(0.1465, 0.15755, 0.0656, 3837.1, -0.1772+mag_center_coordinate, -I_A)
+coilA4 = solenoid_with_simplified_winding(0.15755, 0.161043, 0.0656, 2219.5, -0.1772+mag_center_coordinate, -I_A)
+coilA5 = solenoid_with_simplified_winding(0.1431, 0.143525, 0.078, 175.5, 0.08+mag_center_coordinate, -I_A)
+coilA6 = solenoid_with_simplified_winding(0.1431, 0.143525, 0.006, 13.5, 0.2+mag_center_coordinate, -I_A)
+coilA7 = solenoid_with_simplified_winding(0.1633, 0.163725, 0.038, 85.5, 0.3+mag_center_coordinate, -I_A)
 
 MirrorA = magpy.Collection(coilA1, coilA2, coilA3, coilA4, coilA5, coilA6, coilA7)
 print("Mirror A generated.")
 
-I_B = 30.6 #Mirror A current
-coilB1 = solenoid(0.1397, 0.15756, 0.127, 12000, 0.3-mag_center_coordinate, I_B)
-coilB2 = solenoid(0.15756, 0.163275, 0.127, 7031.3, 0.3-mag_center_coordinate, I_B)
-coilB3 = solenoid(0.1465, 0.15755, 0.0656, 3837.1, 0.1772-mag_center_coordinate, -I_B)
-coilB4 = solenoid(0.15755, 0.161043, 0.0656, 2219.5, 0.1772-mag_center_coordinate, -I_B)
-coilB5 = solenoid(0.1431, 0.143525, 0.078, 175.5, -0.08-mag_center_coordinate, -I_B)
-coilB6 = solenoid(0.1431, 0.143525, 0.006, 13.5, -0.2-mag_center_coordinate, -I_B)
-coilB7 = solenoid(0.1633, 0.163725, 0.038, 85.5, -0.3-mag_center_coordinate, -I_B)
+I_B = 0 #Mirror A current, nominal = 30.6 A
+coilB1 = solenoid_with_simplified_winding(0.1397, 0.15756, 0.127, 12000, 0.3+mag_center_coordinate, I_B)
+coilB2 = solenoid_with_simplified_winding(0.15756, 0.163275, 0.127, 7031.3, 0.3+mag_center_coordinate, I_B)
+coilB3 = solenoid_with_simplified_winding(0.1465, 0.15755, 0.0656, 3837.1, 0.1772+mag_center_coordinate, -I_B)
+coilB4 = solenoid_with_simplified_winding(0.15755, 0.161043, 0.0656, 2219.5, 0.1772+mag_center_coordinate, -I_B)
+coilB5 = solenoid_with_simplified_winding(0.1431, 0.143525, 0.078, 175.5, -0.08+mag_center_coordinate, -I_B)
+coilB6 = solenoid_with_simplified_winding(0.1431, 0.143525, 0.006, 13.5, -0.2+mag_center_coordinate, -I_B)
+coilB7 = solenoid_with_simplified_winding(0.1633, 0.163725, 0.038, 85.5, -0.3+mag_center_coordinate, -I_B)
 
 MirrorB = magpy.Collection(coilB1, coilB2, coilB3, coilB4, coilB5, coilB6, coilB7)
 print("Mirror B generated.")
@@ -63,7 +69,7 @@ print(f"Magnets created. Took: {time.perf_counter() - start_time:.4f} seconds")
 
 '''
 #Quick plot check for Bz field
-observers = np.linspace((0, 0, -0.9), (0, 0, 0.3), 61)
+observers = np.linspace((0, 0, -0.9), (0, 0, 0.3), 121)
 B = magpy.getB(magnet, observers)
 #print(B)
 
@@ -121,15 +127,20 @@ plt.show()
 '''
 
 #Field data output
-x = np.linspace(-100e-3, 100e-3, 201)
-y = np.linspace(-100e-3, 100e-3, 201)
-z = np.linspace(-10e-3, 500e-3, 511)
+'''Saved for full profile
+x = np.linspace(-0.1, 0.1, 201)
+y = np.linspace(-0.1, 0.1, 201)
+z = np.linspace(-0.01, 0.5, 511)
+'''
+x = np.linspace(0, 1, 201)
+y = np.linspace(0, 0, 1)
+z = np.linspace(0, 0, 1)
 
 # all grid points as an (N, 3) array
 X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
 observers = np.stack((X.ravel(), Y.ravel(), Z.ravel()), axis=1)
 
-BLOCK = 50000
+BLOCK = 1000
 fmt = ["%.3f"] * 3 + ["%.8e"] * 3
 
 with open("data.dat", "w", encoding="utf-8") as file:

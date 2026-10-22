@@ -1,0 +1,5 @@
+# Ignore .dat files
+*.dat
+
+# Ignore .png files
+*.png
