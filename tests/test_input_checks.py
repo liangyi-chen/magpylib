@@ -1,3 +1,5 @@
+import array
+
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
@@ -830,6 +832,31 @@ def test_input_observers_bad(observers):
 
 
 @pytest.mark.parametrize(
+    ("sources", "observers", "first_line", "received"),
+    [
+        (None, None, "No observers provided", None),
+        (None, [], "No observers provided", None),
+        (None, array.array("d", [0, 0, 2]), "Bad observers provided", "type 'array'"),
+        (None, [magpy.Sensor(), "abc"], "Bad observers provided", "'abc'"),
+        (None, [magpy.Sensor(), "x" * 200], "Bad observers provided", "xxx...xxx"),
+        ("abc", (0, 0, 1), "Bad sources provided", "'abc'"),
+    ],
+)
+def test_wrong_input_message(sources, observers, first_line, received):
+    """ "No ... provided" only when nothing was given; otherwise "Bad ... provided"
+    and a shortened repr of what was received (#1000)"""
+    sources = magpy.misc.Dipole(moment=(1, 2, 3)) if sources is None else sources
+    with pytest.raises(MagpylibBadUserInput) as excinfo:
+        magpy.getB(sources, observers)
+    lines = str(excinfo.value).splitlines()
+    assert lines[0] == first_line
+    if received is None:
+        assert not lines[-1].startswith("received")
+    else:
+        assert received in lines[-1]
+
+
+@pytest.mark.parametrize(
     "children",
     [
         [magpy.Sensor()],
@@ -1124,3 +1151,21 @@ def test_reshape_must_be_a_tuple():
         check_format_input_numeric(
             2.0, dtype=float, shapes=None, reshape=[1, 1], name="x"
         )
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: magpy.getB(magpy.misc.Dipole(moment=(0, 0, 1)), [1, 2, 3, 4]),
+        lambda: magpy.current.TriangleSheet(
+            vertices=[(0, 0, 0), (1, 0, 0), (0, 1, 0)],
+            faces=[(0, 1, 5)],
+            current_densities=[(1, 0, 0)],
+        ),
+    ],
+    ids=["observer shape", "faces vs vertices"],
+)
+def test_input_errors_are_value_errors(call):
+    """Magpylib's input errors are ValueErrors, so a standard except catches them."""
+    with pytest.raises(ValueError):  # noqa: PT011
+        call()

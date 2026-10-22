@@ -49,6 +49,12 @@ def row_col_defaults():
     }
 
 
+def legend_overflow_label(hidden):
+    """Text of the one entry standing for the `hidden` legend entries past
+    `legend_maxitems`, shared so every backend words it the same."""
+    return f"… and {hidden} more"
+
+
 def get_legend_label(obj, style=None, suffix=True):
     """provides legend entry based on name and suffix"""
     style = obj.style if style is None else style
@@ -122,7 +128,10 @@ def place_and_orient_model3d(
 
 def get_vertices_from_model(model_kwargs, model_args=None, coordsargs=None):
     """get vertices from model kwargs and args"""
-    if model_args and coordsargs is None:  # Matplotlib default
+    model_kwargs = model_kwargs or {}
+    if (
+        model_args and coordsargs is None and not all(k in model_kwargs for k in "xyz")
+    ):  # Matplotlib default, unless the kwargs name the coordinates
         coordsargs = {"x": "args[0]", "y": "args[1]", "z": "args[2]"}
     vertices = []
     if coordsargs is None:
@@ -420,11 +429,26 @@ def get_objects_props_by_row_col(*objs, colorsequence, style_kwargs):
         style_kwargs=style_kwargs,
         colorsequence=colorsequence,
     )
+    # whether each object, children included, is listed in a legend: the
+    # parent collection's setting where there is one, else the object's own,
+    # resolved with defaults and show() arguments -- the rule 3D traces follow.
+    # 2D panels hold only the objects as given, so their children's settings
+    # would be lost without this.
+    legend_show = {
+        obj: props["style"].legend.show
+        if props["showlegend"] is None
+        else props["showlegend"]
+        for obj, props in flat_sub_objs.items()
+    }
     for obj, rc_params_list in rc_params_by_obj.items():
         for rc_params in rc_params_list:
             rc = rc_params["row"], rc_params["col"]
             if rc not in flat_objs_rc:
-                flat_objs_rc[rc] = {"objects": {}, "rc_params": rc_params}
+                flat_objs_rc[rc] = {
+                    "objects": {},
+                    "rc_params": rc_params,
+                    "legend_show": legend_show,
+                }
             if rc_params["output"] == "model3d" or obj in objs_by_rc[rc]:
                 flat_objs_rc[rc]["objects"][obj] = flat_sub_objs[obj]
     return flat_objs_rc
@@ -444,13 +468,19 @@ def get_flatten_objects_properties_recursive(
     if color_cycle is None:
         color_cycle = cycle(colorsequence)
     flat_objs = {}
-    for subobj in dict.fromkeys(obj_list_semi_flat):
+    for index, subobj in enumerate(dict.fromkeys(obj_list_semi_flat)):
         isCollection = getattr(subobj, "children", None) is not None
         style_kwargs = {} if style_kwargs is None else style_kwargs
         style = get_style(subobj, default_settings, **style_kwargs)
         if style.label is None:
             style.label = str(type(subobj).__name__)
-        legendgroup = f"{subobj}" if parent_legendgroup is None else parent_legendgroup
+        # the outermost object's class and position among those shown: unique
+        # in the figure and the same on every run, unlike a repr with its id
+        legendgroup = (
+            f"{type(subobj).__name__}#{index}"
+            if parent_legendgroup is None
+            else parent_legendgroup
+        )
         label = (
             get_legend_label(subobj, style=style)
             if parent_label is None
@@ -745,7 +775,17 @@ def rescale_traces(traces, factors):
             tr["args"] = args
         if "z" in tr:  # rescale only 3d traces
             rc = tr.get("row", 1), tr.get("col", 1)
-            traces[ind] = place_and_orient_model3d(tr, length_factor=factors[rc])
+            placed = place_and_orient_model3d(tr, length_factor=factors[rc])
+            # one type whatever the user typed and whatever the unit: integer
+            # positions stayed integer arrays at a factor of 1, and a user
+            # model's face indices arrived as the lists it was given
+            for k in "xyz":
+                placed[k] = np.asarray(placed[k], dtype=float)
+            if placed.get("type") == "mesh3d":
+                for k in "ijk":
+                    if k in placed:
+                        placed[k] = np.asarray(placed[k], dtype=int)
+            traces[ind] = placed
     return traces
 
 
@@ -1046,3 +1086,27 @@ def get_trace_kw(trace, arg, *, none_replace=None):
     if res is None:
         return none_replace
     return res
+
+
+#: The spelling of each allowed line style in the trace dialect: the long
+#: names, so that a backend maps six values rather than every spelling the
+#: style accepts, a dash tuple among them.
+LINE_DASHES = {
+    "solid": "solid",
+    "-": "solid",
+    "dashed": "dashed",
+    "--": "dashed",
+    "dotted": "dotted",
+    ".": "dotted",
+    ":": "dotted",
+    (0, (1, 1)): "dotted",
+    "dashdot": "dashdot",
+    "-.": "dashdot",
+    "loosely dotted": "loosely dotted",
+    "loosely dashdotted": "loosely dashdotted",
+}
+
+
+def line_dash(style):
+    """The dialect's spelling of the line style `style`; None stays None."""
+    return None if style is None else LINE_DASHES.get(style, style)

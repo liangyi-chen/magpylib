@@ -24,8 +24,16 @@ except ImportError as missing_module:  # pragma: no cover
 from matplotlib.colors import LinearSegmentedColormap
 from pyvista.plotting.colors import Color  # pylint: disable=import-error
 
-from magpylib._src.display.api import drawing_properties
-from magpylib._src.display.traces_utility import get_trace_kw, split_input_arrays
+from magpylib._src.display.api import (
+    drawing_properties,
+    forward_options,
+    warn_unused_options,
+)
+from magpylib._src.display.traces_utility import (
+    get_trace_kw,
+    legend_overflow_label,
+    split_input_arrays,
+)
 from magpylib._src.utility import is_array_like, open_animation
 
 # from magpylib._src.utility import format_obj_input
@@ -136,6 +144,9 @@ def scatter_to_pyvista(trace):
 
     if trace["type"] == "scatter3d":
         points = np.array([trace[k] for k in "xyz"], dtype=float).T
+        if len(points) == 0:
+            # an empty trace, kept so that every frame has the same traces
+            return traces
         if "lines" in mode:
             for (lcol,), inds in split_input_arrays(line_color):
                 trace_pv_line = {
@@ -181,7 +192,7 @@ def scatter_to_pyvista(trace):
                     "style": ldash,
                     "label": trace.get("name", ""),
                 }
-            traces.append(trace_pv_line)
+                traces.append(trace_pv_line)
         if "markers" in mode:
             for (msize,), inds in split_input_arrays(marker_size, ordered=False):
                 if msize != 0:
@@ -207,6 +218,7 @@ def scatter_to_pyvista(trace):
 
 def generic_trace_to_pyvista(trace):
     """Transform a generic trace into a pyvista traces"""
+    row, col = trace.get("row", 1), trace.get("col", 1)
     trace = drawing_properties(trace)
     traces_pv = []
     if trace["type"] == "mesh3d":
@@ -221,18 +233,43 @@ def generic_trace_to_pyvista(trace):
         raise ValueError(msg2)
     showlegend = trace.get("showlegend", False)
     for tr in traces_pv:
-        tr["row"] = trace.get("row", 1) - 1
-        tr["col"] = trace.get("col", 1) - 1
-        if tr["type"] != "point_labels" and showlegend:
+        tr["row"] = row - 1
+        tr["col"] = col - 1
+        if tr["type"] == "point_labels":
+            continue
+        if showlegend:
             showlegend = False  # show only first subtrace
             if "label" not in tr:
                 tr["label"] = trace.get("name", "")
             leg_title = trace.get("legendgrouptitle_text", None)
             if leg_title is not None:
                 tr["label"] += f" ({leg_title})"
+        else:
+            # a 2D line arrives labelled with the trace's name; a label is a
+            # legend entry in a chart, so every other subtrace -- and every
+            # subtrace of a trace left out of the legend -- drops it
+            tr.pop("label", None)
         if not tr.get("label", ""):
             tr.pop("label", None)
     return traces_pv
+
+
+def add_capped_legend(canvas, labels, maxitems):
+    """Add the active subplot's legend with at most `maxitems` of its
+    `labels`, the rest summed up in one entry. 0 adds none."""
+    if maxitems == 0 or not labels:
+        return
+    hidden = len(labels) - maxitems
+    if hidden <= 0:
+        canvas.add_legend(bcolor=None)
+        return
+    # a bare label takes its face and color from the labelled actor at the
+    # same index, so the entries kept look as they would uncapped
+    entries = [
+        *labels[:maxitems],
+        {"label": legend_overflow_label(hidden), "color": "gray", "face": "none"},
+    ]
+    canvas.add_legend(labels=entries, bcolor=None)
 
 
 def display_pyvista(scene):
@@ -248,39 +285,49 @@ def display_pyvista(scene):
     # native_traces are intentionally unused; see supports_native_traces
     frames = [fr.traces for fr in scene.frames]
 
-    fig_kwargs = dict(scene.fig_kwargs)
-    show_kwargs = dict(scene.show_kwargs)
+    fig_kwargs = scene.prefixed_options("fig")
+    show_kwargs = scene.prefixed_options("show")
+    unused_show = [f"show_{k}" for k in show_kwargs]
+    if jupyter_backend is not None:
+        unused_show.append("jupyter_backend")
 
     animation = scene.is_animation
     show_canvas = False
     if canvas is None:
         if not return_fig:
             show_canvas = True  # pragma: no cover
-        canvas = pv.Plotter(
+        # the subplot grid is magpylib's to set; off-screen rendering is the
+        # user's choice too, e.g. fig_off_screen=True to take a screenshot
+        canvas = forward_options(
+            pv.Plotter,
+            "fig",
+            fig_kwargs,
+            defaults={"off_screen": animation},
             shape=(scene.n_rows, scene.n_cols),
-            off_screen=animation,
-            **fig_kwargs,
+        )
+    else:
+        warn_unused_options(
+            [f"fig_{k}" for k in fig_kwargs], "the plotter was given as canvas"
         )
 
     charts = {}
     jupyter_backend = show_kwargs.pop("jupyter_backend", jupyter_backend)
     if jupyter_backend is None:
         jupyter_backend = pv.global_theme.jupyter_backend
-    count_with_labels = {}
+    legend_labels = {}
     charts_max_ind = 0
 
     def draw_frame(frame_ind):
-        nonlocal count_with_labels, charts_max_ind
+        nonlocal charts_max_ind
         for tr0 in frames[frame_ind]:
             for tr1 in generic_trace_to_pyvista(tr0):
                 row = tr1.pop("row", 1)
                 col = tr1.pop("col", 1)
                 typ = tr1.pop("type")
                 if frame_ind == 0:
-                    if (row, col) not in count_with_labels:
-                        count_with_labels[(row, col)] = 0
+                    labels_rc = legend_labels.setdefault((row, col), [])
                     if tr1.get("label", ""):
-                        count_with_labels[(row, col)] += 1
+                        labels_rc.append(tr1["label"])
                 canvas.subplot(row, col)
                 panel = scene.panel(row + 1, col + 1)
                 if panel is None or panel.kind == "scene3d":
@@ -288,7 +335,13 @@ def display_pyvista(scene):
                 else:
                     if charts.get((row, col)) is None:
                         charts_max_ind += 1
-                        charts[(row, col)] = pv.Chart2D()
+                        # the chart is magpylib's own, even on a given
+                        # plotter, so it is labelled whatever canvas_update says
+                        axis_labels = panel.labels if panel is not None else {}
+                        charts[(row, col)] = pv.Chart2D(
+                            x_label=axis_labels.get("x", ""),
+                            y_label=axis_labels.get("y", ""),
+                        )
                         canvas.add_chart(charts[(row, col)])
                     getattr(charts[(row, col)], typ)(**tr1)
             # in pyvista there is no way to set the bounds so we add corners with
@@ -303,7 +356,7 @@ def display_pyvista(scene):
                 # needs to happen in the loop otherwise they cummulate
                 # while the max of 10 is reached and throws a ValueError
 
-        for (row, col), count in count_with_labels.items():
+        for (row, col), labels_rc in legend_labels.items():
             canvas.subplot(row, col)
             # match other backends plotter properties
             if canvas_update:
@@ -311,11 +364,8 @@ def display_pyvista(scene):
                     canvas.show_axes()
                 canvas.camera.azimuth = -90
                 canvas.set_background("gray", top="white")
-            if (
-                0 < count <= legend_maxitems
-                and scene.panel_kind(row + 1, col + 1) == "scene3d"
-            ):
-                canvas.add_legend(bcolor=None)
+            if scene.panel_kind(row + 1, col + 1) == "scene3d":
+                add_capped_legend(canvas, labels_rc, legend_maxitems)
 
     def run_animation(filename, embed=True):
         # embed=True, embeds the animation into the notebook page and is necessary when using
@@ -368,8 +418,18 @@ def display_pyvista(scene):
         else:
             run_animation(animation_output, embed=True)
 
+    if not show_canvas:
+        warn_unused_options(
+            unused_show,
+            "the plotter is returned or was given as canvas rather than shown",
+        )
     if return_fig and not show_canvas:
         return canvas
-    if show_canvas:
-        canvas.show(jupyter_backend=jupyter_backend, **show_kwargs)  # pragma: no cover
+    if show_canvas:  # pragma: no cover
+        forward_options(
+            canvas.show,
+            "show",
+            show_kwargs,
+            defaults={"jupyter_backend": jupyter_backend},
+        )
     return None
